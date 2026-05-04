@@ -1,0 +1,39 @@
+# build outputs
+/build/
+
+# All plugin/ build + runtime artifacts. Sources in plugin/ are .cpp/.hpp
+# only; everything else (DLLs from build + DLLs staged from CUDA/TRT,
+# import libs, debug symbols, manifests, downloaded models, built engines)
+# stays out of git.
+/plugin/*.dll
+/plugin/*.lib
+/plugin/*.exp
+/plugin/*.pdb
+/plugin/*.manifest
+/plugin/*.engine
+/plugin/*.onnx
+
+# downloaded engines + ONNX caches kept out of git
+/engines/
+/models/
+
+# vendored third_party builds
+/third_party/build/
+/third_party/*/build/
+
+# TouchDesigner local state. .toe files often carry per-machine paths +
+# transient working state, so they're ignored by default. To ship a
+# curated example scene later: `git add -f td/your-example.toe`.
+/td/Backup/
+/td/*.toe
+/td/*.toe.bak
+/td/debugview.log
+
+# Visual Studio
+.vs/
+*.user
+
+*.local
+
+# WIP docs not yet verified end-to-end — re-fold into README when ready
+/.docs-pending/
