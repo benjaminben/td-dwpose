@@ -78,8 +78,8 @@ std::vector<Keypoint> DWPoseRunner::keypoints(int personIdx) const
 }
 
 void DWPoseRunner::renderPose(cudaArray_t out, int W, int H,
-                              int src_w, int src_h, cudaStream_t stream,
-                              unsigned int flags)
+                              int src_w, int src_h, float marker_scale,
+                              cudaStream_t stream, unsigned int flags)
 {
     // Snapshot persons under mutex, then drop the lock before kernel launches.
     std::vector<PoseKp> flat;
@@ -93,7 +93,7 @@ void DWPoseRunner::renderPose(cudaArray_t out, int W, int H,
             flat[p * 134 + i] = {persons_[p].kp[i * 2], persons_[p].kp[i * 2 + 1], persons_[p].sc[i]};
         }
     }
-    render_pose(out, W, H, flat.data(), n, 134, src_w, src_h, stream, flags);
+    render_pose(out, W, H, flat.data(), n, 134, src_w, src_h, marker_scale, stream, flags);
 }
 
 void DWPoseRunner::requestReload(const std::string& engines_dir)
@@ -263,6 +263,40 @@ void DWPoseRunner::inferLocked(cudaArray_t in, int W, int H, ChannelOrder order,
     auto boxes = yolox_decode(
         det_out_host_.data(), det_out_anchors_, det_h_, det_w_,
         scale, YOLOX_CONF_THRESH, YOLOX_IOU_THRESH);
+
+    // Drop detections whose shorter side is below the threshold (pose
+    // keypoints from a sub-N-pixel crop are unreliable noise). Runs before
+    // the cap so the cap budget isn't spent on a tiny detection that would
+    // have been filtered anyway.
+    const int min_px = min_body_px_.load();
+    if(min_px > 0)
+    {
+        const float min_side = static_cast<float>(min_px);
+        boxes.erase(
+            std::remove_if(boxes.begin(), boxes.end(), [min_side](const Box& b) {
+                const float w = b.x2 - b.x1;
+                const float h = b.y2 - b.y1;
+                return w < min_side || h < min_side;
+            }),
+            boxes.end());
+    }
+
+    // "Most obvious subject" = big + high-confidence. NMS already pre-sorted
+    // by score, so a tiny background person can outrank a large foreground
+    // one; ranking by area*score before truncating fixes that.
+    const int cap = max_bodies_.load();
+    if(cap > 0 && static_cast<int>(boxes.size()) > cap)
+    {
+        const auto rank = [](const Box& b) {
+            const float w = b.x2 - b.x1;
+            const float h = b.y2 - b.y1;
+            return (w > 0.0f && h > 0.0f) ? (w * h * b.score) : 0.0f;
+        };
+        std::partial_sort(
+            boxes.begin(), boxes.begin() + cap, boxes.end(),
+            [&](const Box& a, const Box& b) { return rank(a) > rank(b); });
+        boxes.resize(static_cast<size_t>(cap));
+    }
 
     std::vector<Person> new_persons;
     new_persons.reserve(boxes.size());

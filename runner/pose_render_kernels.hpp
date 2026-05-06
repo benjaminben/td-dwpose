@@ -24,13 +24,13 @@ void launch_darken(
 void launch_body_limbs(
     cudaSurfaceObject_t surf, int W, int H,
     const DeviceLimb* d_limbs, int n_limbs,
-    int max_w, int max_h, cudaStream_t stream);
+    int max_w, int max_h, float marker_scale, cudaStream_t stream);
 
 // Body keypoint dot pass. Same per-bucket pattern as launch_body_limbs.
 void launch_body_dots(
     cudaSurfaceObject_t surf, int W, int H,
     const DeviceDot* d_dots, int n_dots,
-    int max_w, int max_h, cudaStream_t stream);
+    int max_w, int max_h, float marker_scale, cudaStream_t stream);
 
 // Draw all `n_lines` hand finger-chain lines into `surf` over the existing
 // (already-darkened) canvas. Color comes from the per-line color_idx into
@@ -39,7 +39,7 @@ void launch_body_dots(
 void launch_hand_lines(
     cudaSurfaceObject_t surf, int W, int H,
     const DeviceLine* d_lines, int n_lines,
-    int max_w, int max_h, cudaStream_t stream);
+    int max_w, int max_h, float marker_scale, cudaStream_t stream);
 
 // Draw all `n_dots` hand keypoint dots in solid red (0,0,255 in cv2 BGR
 // terms; (255,0,0)... wait the canvas is RGB, so the (0,0,255) cv2 BGR
@@ -50,14 +50,14 @@ void launch_hand_lines(
 void launch_hand_dots(
     cudaSurfaceObject_t surf, int W, int H,
     const DeviceDot* d_dots, int n_dots,
-    int max_w, int max_h, cudaStream_t stream);
+    int max_w, int max_h, float marker_scale, cudaStream_t stream);
 
 // Draw all `n_dots` face landmark dots in solid white (255,255,255). Radius
 // is FACE_DOT_R (=3, smaller than the body dot radius of 4).
 void launch_face_dots(
     cudaSurfaceObject_t surf, int W, int H,
     const DeviceDot* d_dots, int n_dots,
-    int max_w, int max_h, cudaStream_t stream);
+    int max_w, int max_h, float marker_scale, cudaStream_t stream);
 
 // Per-color_idx bucketing helpers (host-side). Sort `in` by color_idx in
 // place (stable sort -- preserves person-order within a bucket, matching

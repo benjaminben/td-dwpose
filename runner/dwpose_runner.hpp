@@ -55,6 +55,15 @@ public:
     void runFrame(cudaArray_t in, int W, int H, ChannelOrder order,
                   cudaStream_t stream);
 
+    // 0 = unlimited. When >0, the per-frame detection list is truncated to
+    // the top-n bodies ranked by (bbox_area * detection_score). Live-tunable;
+    // the worker reads the value at the start of the next frame.
+    void setMaxBodies(int n);
+
+    // 0 disables. When >0, drops detections whose bbox shorter side is below
+    // `px` before the max-bodies cap is applied. Live-tunable.
+    void setMinBodyPx(int px);
+
     // Render the OpenPose stick figure for the latest snapshot into
     // `out` (RGBA8 cudaArray, W x H). `src_w`/`src_h` are the coord
     // system the keypoints were decoded in (the input frame size). For
@@ -64,8 +73,8 @@ public:
     // path; ORDERED_DRAW serializes per limb_idx / keypoint_idx so
     // cross-limb overlaps match controlnet_aux byte-for-byte.
     void renderPose(cudaArray_t out, int W, int H,
-                    int src_w, int src_h, cudaStream_t stream,
-                    unsigned int flags);
+                    int src_w, int src_h, float marker_scale,
+                    cudaStream_t stream, unsigned int flags);
 
     void requestReload(const std::string& engines_dir);
 

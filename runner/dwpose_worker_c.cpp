@@ -68,6 +68,18 @@ DWPOSE_API void dwpose_runner_run_frame(
         r->runFrame(in, W, H, to_internal(order), stream);
 }
 
+DWPOSE_API void dwpose_runner_set_max_bodies(dwpose_runner_handle h, int n)
+{
+    if(auto* r = as_runner(h))
+        r->setMaxBodies(n);
+}
+
+DWPOSE_API void dwpose_runner_set_min_body_px(dwpose_runner_handle h, int px)
+{
+    if(auto* r = as_runner(h))
+        r->setMinBodyPx(px);
+}
+
 DWPOSE_API int dwpose_runner_status(dwpose_runner_handle h)
 {
     if(auto* r = as_runner(h))
@@ -137,11 +149,12 @@ DWPOSE_API void dwpose_runner_render_pose(
     dwpose_runner_handle h,
     cudaArray_t out, int W, int H,
     int src_w, int src_h,
+    float marker_scale,
     cudaStream_t stream,
     unsigned int flags)
 {
     if(auto* r = as_runner(h))
-        r->renderPose(out, W, H, src_w, src_h, stream, flags);
+        r->renderPose(out, W, H, src_w, src_h, marker_scale, stream, flags);
 }
 
 } // extern "C"

@@ -5,6 +5,7 @@
 
 #include <cuda_runtime.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -103,6 +104,28 @@ void DWPoseTOP::execute(TOP_Output* output, const OP_Inputs* inputs, void*)
     const unsigned int flags =
         ordered ? RENDER_FLAG_ORDERED_DRAW : 0u;
 
+    // Marker auto-scale: project the canvas (W,H) onto the SD target so
+    // base 4-px-at-512 markers end up ~4 px after downstream resize. Mode 0
+    // (Contain / letterbox) uses the long edge, mode 1 (Fill / cover) uses
+    // the short edge. Floor target at 1 to avoid divide-by-zero if a user
+    // manually clears the field.
+    const int target_res_raw = inputs->getParInt(kParTargetRes);
+    const int target_res = target_res_raw > 0 ? target_res_raw : 512;
+    const int mode = inputs->getParInt(kParScalingMode);  // 0=contain, 1=fill
+    const int ref_dim = (mode == 1) ? std::min(width, height)
+                                    : std::max(width, height);
+    const double user_scale = inputs->getParDouble(kParMarkerScale);
+    const float marker_scale =
+        static_cast<float>(ref_dim) / static_cast<float>(target_res)
+        * static_cast<float>(user_scale);
+    myLastMarkerScale = marker_scale;
+
+    if(myRunner)
+    {
+        myRunner->setMaxBodies(inputs->getParInt(kParMaxBodies));
+        myRunner->setMinBodyPx(inputs->getParInt(kParMinBodyPx));
+    }
+
     if(!myContext->beginCUDAOperations(nullptr)) return;
 
     do
@@ -128,7 +151,7 @@ void DWPoseTOP::execute(TOP_Output* output, const OP_Inputs* inputs, void*)
             // sync once perf measurement isn't needed.
             const auto t0 = std::chrono::steady_clock::now();
             myRunner->renderPose(outArray->cudaArray, width, height,
-                                 width, height, stream, flags);
+                                 width, height, marker_scale, stream, flags);
             cudaStreamSynchronize(stream);
             const auto t1 = std::chrono::steady_clock::now();
             myLastRenderMs = static_cast<float>(
@@ -144,8 +167,8 @@ void DWPoseTOP::execute(TOP_Output* output, const OP_Inputs* inputs, void*)
 int32_t DWPoseTOP::getNumInfoCHOPChans(void*)
 {
     // status, progress, num_persons, infer_ms, ordered, lastrender_ms,
-    // plus 18 body keypoints x 2 (xy) for person 0.
-    return 6 + OPENPOSE_BODY_COUNT * 2;
+    // marker_scale, plus 18 body keypoints x 2 (xy) for person 0.
+    return 7 + OPENPOSE_BODY_COUNT * 2;
 }
 
 void DWPoseTOP::getInfoCHOPChan(int32_t index, OP_InfoCHOPChan* chan, void*)
@@ -168,9 +191,11 @@ void DWPoseTOP::getInfoCHOPChan(int32_t index, OP_InfoCHOPChan* chan, void*)
                 chan->value = static_cast<float>(myLastOrdered); return;
         case 5: chan->name->setString("lastrender_ms");
                 chan->value = myLastRenderMs; return;
+        case 6: chan->name->setString("marker_scale");
+                chan->value = myLastMarkerScale; return;
     }
-    const int kp_index = (index - 6) / 2;
-    const int axis = (index - 6) % 2;
+    const int kp_index = (index - 7) / 2;
+    const int axis = (index - 7) % 2;
     if(kp_index < 0 || kp_index >= OPENPOSE_BODY_COUNT) return;
     char name[16];
     std::snprintf(name, sizeof(name), "kp%02d%c", kp_index, axis == 0 ? 'x' : 'y');
@@ -227,6 +252,81 @@ void DWPoseTOP::setupParameters(OP_ParameterManager* manager, void*)
         // person scenes that need accurate arm overlap can flip this on.
         np.defaultValues[0] = 0.0;
         manager->appendToggle(np);
+    }
+    {
+        // Cap detected bodies per frame. 0 disables; values >0 keep the
+        // top-n ranked by bbox_area * detection_score (favors big +
+        // confident subjects over tiny background ones). Live-tunable.
+        OP_NumericParameter np;
+        np.name = kParMaxBodies;
+        np.label = "Max Bodies";
+        np.page = "DWPose";
+        np.defaultValues[0] = 0.0;
+        np.minValues[0] = 0.0;
+        np.minSliders[0] = 0.0;
+        np.maxSliders[0] = 8.0;
+        np.clampMins[0] = true;
+        manager->appendInt(np);
+    }
+    {
+        // Drop detections whose bbox shorter side is below this many pixels.
+        // Default 40: empirically the floor below which DWPose keypoints
+        // become noise (the 288x384 pose crop is upsampled too aggressively).
+        // 0 disables. Live-tunable.
+        OP_NumericParameter np;
+        np.name = kParMinBodyPx;
+        np.label = "Min Body Px";
+        np.page = "DWPose";
+        np.defaultValues[0] = 40.0;
+        np.minValues[0] = 0.0;
+        np.minSliders[0] = 0.0;
+        np.maxSliders[0] = 200.0;
+        np.clampMins[0] = true;
+        manager->appendInt(np);
+    }
+    {
+        // Downstream SD target resolution (square). The plugin auto-scales
+        // marker sizes by ref_dim/target so a 4-px-at-512 marker survives
+        // the downstream resize. Default 512 covers the SD1.5 / SD-Turbo case;
+        // bump to 768/1024 for SDXL-class targets.
+        OP_NumericParameter np;
+        np.name = kParTargetRes;
+        np.label = "Target Resolution";
+        np.page = "DWPose";
+        np.defaultValues[0] = 512.0;
+        np.minValues[0] = 1.0;
+        np.minSliders[0] = 256.0;
+        np.maxSliders[0] = 2048.0;
+        np.clampMins[0] = true;
+        manager->appendInt(np);
+    }
+    {
+        // Contain (letterbox-fit, long edge maps to target) vs Fill (cover,
+        // short edge maps to target). Pick the one that matches the
+        // downstream resize chain feeding the SD ControlNet.
+        OP_StringParameter sp;
+        sp.name = kParScalingMode;
+        sp.label = "Scaling Mode";
+        sp.page = "DWPose";
+        sp.defaultValue = "contain";
+        const char* names[] = {"contain", "fill"};
+        const char* labels[] = {"Contain", "Fill"};
+        manager->appendMenu(sp, 2, names, labels);
+    }
+    {
+        // User multiplier on top of the auto-scaled marker size. 1.0 = auto
+        // only; >1 thickens markers, <1 thins them. Useful when the SD model
+        // was trained on a different marker thickness than 4-px-at-512.
+        OP_NumericParameter np;
+        np.name = kParMarkerScale;
+        np.label = "Marker Scale";
+        np.page = "DWPose";
+        np.defaultValues[0] = 1.0;
+        np.minValues[0] = 0.05;
+        np.minSliders[0] = 0.25;
+        np.maxSliders[0] = 4.0;
+        np.clampMins[0] = true;
+        manager->appendFloat(np);
     }
 }
 

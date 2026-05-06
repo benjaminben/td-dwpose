@@ -80,13 +80,25 @@ void DWPoseRunner::runFrame(cudaArray_t in, int W, int H, ChannelOrder order,
     dwpose_runner_run_frame(as_handle(myHandle), in, W, H, to_c_abi(order), stream);
 }
 
+void DWPoseRunner::setMaxBodies(int n)
+{
+    if(!myLoaded || !myHandle) return;
+    dwpose_runner_set_max_bodies(as_handle(myHandle), n);
+}
+
+void DWPoseRunner::setMinBodyPx(int px)
+{
+    if(!myLoaded || !myHandle) return;
+    dwpose_runner_set_min_body_px(as_handle(myHandle), px);
+}
+
 void DWPoseRunner::renderPose(cudaArray_t out, int W, int H,
-                              int src_w, int src_h, cudaStream_t stream,
-                              unsigned int flags)
+                              int src_w, int src_h, float marker_scale,
+                              cudaStream_t stream, unsigned int flags)
 {
     if(!myLoaded || !myHandle) return;
     dwpose_runner_render_pose(
-        as_handle(myHandle), out, W, H, src_w, src_h, stream, flags);
+        as_handle(myHandle), out, W, H, src_w, src_h, marker_scale, stream, flags);
 }
 
 void DWPoseRunner::requestReload(const std::string& engines_dir)

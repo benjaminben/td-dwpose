@@ -107,17 +107,19 @@ void render_pose_dispatch(
     DeviceDot*  d_hdots  = upload_table(t.hand_dots,  stream);
     DeviceDot*  d_fdots  = upload_table(t.face_dots,  stream);
 
+    const float ms = t.marker_scale;
+
     // Pass 2: limbs.
     if(d_limbs)
     {
         if(ordered)
             for(const auto& b : b_limbs)
                 launch_body_limbs(surf, W, H, d_limbs + b.offset, b.count,
-                                  t.max_limb_w, t.max_limb_h, stream);
+                                  t.max_limb_w, t.max_limb_h, ms, stream);
         else
             launch_body_limbs(surf, W, H, d_limbs,
                               static_cast<int>(t.limbs.size()),
-                              t.max_limb_w, t.max_limb_h, stream);
+                              t.max_limb_w, t.max_limb_h, ms, stream);
     }
 
     // Pass 3: darken (matches `canvas = (canvas * 0.6).astype(np.uint8)`).
@@ -129,11 +131,11 @@ void render_pose_dispatch(
         if(ordered)
             for(const auto& b : b_dots)
                 launch_body_dots(surf, W, H, d_dots + b.offset, b.count,
-                                 t.max_dot_w, t.max_dot_h, stream);
+                                 t.max_dot_w, t.max_dot_h, ms, stream);
         else
             launch_body_dots(surf, W, H, d_dots,
                              static_cast<int>(t.dots.size()),
-                             t.max_dot_w, t.max_dot_h, stream);
+                             t.max_dot_w, t.max_dot_h, ms, stream);
     }
 
     // Pass 5: hand finger-chain lines. Bucketing by edge_idx (color_idx
@@ -145,11 +147,11 @@ void render_pose_dispatch(
         if(ordered)
             for(const auto& b : b_hlines)
                 launch_hand_lines(surf, W, H, d_hlines + b.offset, b.count,
-                                  t.max_line_w, t.max_line_h, stream);
+                                  t.max_line_w, t.max_line_h, ms, stream);
         else
             launch_hand_lines(surf, W, H, d_hlines,
                               static_cast<int>(t.hand_lines.size()),
-                              t.max_line_w, t.max_line_h, stream);
+                              t.max_line_w, t.max_line_h, ms, stream);
     }
 
     // Pass 6: hand keypoint dots. Bucketed by keypoint_idx (the table
@@ -159,11 +161,11 @@ void render_pose_dispatch(
         if(ordered)
             for(const auto& b : b_hdots)
                 launch_hand_dots(surf, W, H, d_hdots + b.offset, b.count,
-                                 t.max_hand_dot_w, t.max_hand_dot_h, stream);
+                                 t.max_hand_dot_w, t.max_hand_dot_h, ms, stream);
         else
             launch_hand_dots(surf, W, H, d_hdots,
                              static_cast<int>(t.hand_dots.size()),
-                             t.max_hand_dot_w, t.max_hand_dot_h, stream);
+                             t.max_hand_dot_w, t.max_hand_dot_h, ms, stream);
     }
 
     // Pass 7: face landmark dots -- skip bucketing per spec (uniform
@@ -171,7 +173,7 @@ void render_pose_dispatch(
     if(d_fdots)
         launch_face_dots(surf, W, H, d_fdots,
                          static_cast<int>(t.face_dots.size()),
-                         t.max_face_dot_w, t.max_face_dot_h, stream);
+                         t.max_face_dot_w, t.max_face_dot_h, ms, stream);
 
     // Sync before freeing because cudaFree on plain (non-pool) memory
     // cannot be deferred onto the stream the way cudaFreeAsync can.

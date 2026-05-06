@@ -43,6 +43,17 @@ public:
     void runFrame(cudaArray_t in, int W, int H, ChannelOrder order,
                   cudaStream_t stream);
 
+    // 0 disables the cap. When >0, the per-frame detection list is truncated
+    // to the top-n bodies ranked by (bbox_area * detection_score). Atomic so
+    // the TOP can update it from the cook thread while inferLocked() reads
+    // it on the worker thread.
+    void setMaxBodies(int n) { max_bodies_.store(n < 0 ? 0 : n); }
+
+    // 0 disables. When >0, drops detections whose bbox shorter side is below
+    // `px`. Applied before setMaxBodies's truncation so the cap counts only
+    // viable candidates.
+    void setMinBodyPx(int px) { min_body_px_.store(px < 0 ? 0 : px); }
+
     // Triggers a fresh re-check of the engines folder + reload if anything
     // changed. Reload pulse from the TOP routes here.
     void requestReload(const std::string& engines_dir);
@@ -63,8 +74,8 @@ public:
     // cleared to black, which is the correct "no pose" conditioning.
     // `flags` is forwarded to render_pose; bit 0 = ORDERED_DRAW.
     void renderPose(cudaArray_t out, int W, int H,
-                    int src_w, int src_h, cudaStream_t stream,
-                    unsigned int flags);
+                    int src_w, int src_h, float marker_scale,
+                    cudaStream_t stream, unsigned int flags);
 
 private:
     void prepareWorker(std::string engines_dir);
@@ -75,6 +86,8 @@ private:
     std::atomic<Status> status_{Status::Idle};
     std::atomic<float> progress_{0.0f};
     std::atomic<float> infer_ms_{0.0f};
+    std::atomic<int> max_bodies_{0};
+    std::atomic<int> min_body_px_{0};
     std::string last_error_;
     std::string current_engines_dir_;
 

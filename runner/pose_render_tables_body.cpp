@@ -25,6 +25,8 @@ void build_body_tables(
     const PoseKp* kps, int num_persons, int stride,
     float sx, float sy, int W, int H, PoseRenderTables& t)
 {
+    const float stick_w_eff = static_cast<float>(STICK_W) * t.marker_scale;
+    const int   dot_r_pad   = static_cast<int>(std::ceil(DOT_R * t.marker_scale)) + 1;
     for(int p = 0; p < num_persons; ++p)
     {
         const PoseKp* k = kps + p * stride;
@@ -47,9 +49,9 @@ void build_body_tables(
             // Bounding box of the rotated ellipse. Pad by 1 px to guarantee
             // every interior pixel falls inside the dispatched grid.
             const float bx_ext = std::fabs(half_len * ux) +
-                                 std::fabs(static_cast<float>(STICK_W) * uy) + 1.0f;
+                                 std::fabs(stick_w_eff * uy) + 1.0f;
             const float by_ext = std::fabs(half_len * uy) +
-                                 std::fabs(static_cast<float>(STICK_W) * ux) + 1.0f;
+                                 std::fabs(stick_w_eff * ux) + 1.0f;
             DeviceLimb L;
             L.mx = mx; L.my = my; L.ux = ux; L.uy = uy;
             L.half_len = half_len; L.color_idx = i;
@@ -69,11 +71,10 @@ void build_body_tables(
             const float cx = K.x * sx, cy = K.y * sy;
             DeviceDot D;
             D.cx = cx; D.cy = cy; D.color_idx = i;
-            const int pad = DOT_R + 1;
-            D.x0 = clampi(static_cast<int>(std::floor(cx)) - pad, 0, W);
-            D.y0 = clampi(static_cast<int>(std::floor(cy)) - pad, 0, H);
-            D.x1 = clampi(static_cast<int>(std::ceil (cx)) + pad, 0, W);
-            D.y1 = clampi(static_cast<int>(std::ceil (cy)) + pad, 0, H);
+            D.x0 = clampi(static_cast<int>(std::floor(cx)) - dot_r_pad, 0, W);
+            D.y0 = clampi(static_cast<int>(std::floor(cy)) - dot_r_pad, 0, H);
+            D.x1 = clampi(static_cast<int>(std::ceil (cx)) + dot_r_pad, 0, W);
+            D.y1 = clampi(static_cast<int>(std::ceil (cy)) + dot_r_pad, 0, H);
             if(D.x1 <= D.x0 || D.y1 <= D.y0) continue;
             t.max_dot_w = std::max(t.max_dot_w, D.x1 - D.x0);
             t.max_dot_h = std::max(t.max_dot_h, D.y1 - D.y0);

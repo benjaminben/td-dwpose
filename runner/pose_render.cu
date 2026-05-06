@@ -46,7 +46,7 @@ __global__ void fill_black_kernel(cudaSurfaceObject_t surf, int W, int H)
 
 __global__ void draw_limbs_kernel(
     cudaSurfaceObject_t surf, int W, int H,
-    const DeviceLimb* limbs, int n_limbs)
+    const DeviceLimb* limbs, int n_limbs, float stick_w_eff)
 {
     const int li = blockIdx.z;
     if(li >= n_limbs) return;
@@ -61,7 +61,7 @@ __global__ void draw_limbs_kernel(
     const float u =  dx * L.ux + dy * L.uy;
     const float v = -dx * L.uy + dy * L.ux;
     const float a = L.half_len > 1.0f ? L.half_len : 1.0f;
-    const float b = static_cast<float>(STICK_W);
+    const float b = stick_w_eff > 1.0f ? stick_w_eff : 1.0f;
     if((u * u) / (a * a) + (v * v) / (b * b) > 1.0f) return;
     const Color3 c = kPoseColors[L.color_idx];
     uchar4 px_v{c.r, c.g, c.b, 255};
@@ -85,7 +85,7 @@ __global__ void darken_kernel(cudaSurfaceObject_t surf, int W, int H)
 
 __global__ void draw_dots_kernel(
     cudaSurfaceObject_t surf, int W, int H,
-    const DeviceDot* dots, int n_dots)
+    const DeviceDot* dots, int n_dots, float dot_r_eff)
 {
     const int di = blockIdx.z;
     if(di >= n_dots) return;
@@ -96,7 +96,7 @@ __global__ void draw_dots_kernel(
     if(px < 0 || py < 0 || px >= W || py >= H) return;
     const float dx = (px + 0.5f) - D.cx;
     const float dy = (py + 0.5f) - D.cy;
-    const float r = static_cast<float>(DOT_R);
+    const float r = dot_r_eff > 0.5f ? dot_r_eff : 0.5f;
     if(dx * dx + dy * dy > r * r) return;
     const Color3 c = kPoseColors[D.color_idx];
     uchar4 px_v{c.r, c.g, c.b, 255};
@@ -125,25 +125,27 @@ void launch_darken(cudaSurfaceObject_t surf, int W, int H, cudaStream_t stream)
 void launch_body_limbs(
     cudaSurfaceObject_t surf, int W, int H,
     const DeviceLimb* d_limbs, int n_limbs,
-    int max_w, int max_h, cudaStream_t stream)
+    int max_w, int max_h, float marker_scale, cudaStream_t stream)
 {
     if(n_limbs <= 0) return;
     dim3 block(16, 16);
     dim3 grid((max_w + 15) / 16, (max_h + 15) / 16,
               static_cast<unsigned>(n_limbs));
-    draw_limbs_kernel<<<grid, block, 0, stream>>>(surf, W, H, d_limbs, n_limbs);
+    const float stick_w_eff = static_cast<float>(STICK_W) * marker_scale;
+    draw_limbs_kernel<<<grid, block, 0, stream>>>(surf, W, H, d_limbs, n_limbs, stick_w_eff);
 }
 
 void launch_body_dots(
     cudaSurfaceObject_t surf, int W, int H,
     const DeviceDot* d_dots, int n_dots,
-    int max_w, int max_h, cudaStream_t stream)
+    int max_w, int max_h, float marker_scale, cudaStream_t stream)
 {
     if(n_dots <= 0) return;
     dim3 block(16, 16);
     dim3 grid((max_w + 15) / 16, (max_h + 15) / 16,
               static_cast<unsigned>(n_dots));
-    draw_dots_kernel<<<grid, block, 0, stream>>>(surf, W, H, d_dots, n_dots);
+    const float dot_r_eff = static_cast<float>(DOT_R) * marker_scale;
+    draw_dots_kernel<<<grid, block, 0, stream>>>(surf, W, H, d_dots, n_dots, dot_r_eff);
 }
 
 // Defined in pose_render_dispatch.cpp -- chooses between the legacy
@@ -157,7 +159,7 @@ void render_pose_dispatch(
 void render_pose(
     cudaArray_t out, int W, int H,
     const PoseKp* kps_host, int num_persons, int stride,
-    int src_w, int src_h, cudaStream_t stream,
+    int src_w, int src_h, float marker_scale, cudaStream_t stream,
     unsigned int flags)
 {
     if(!out || W <= 0 || H <= 0) return;
@@ -173,7 +175,7 @@ void render_pose(
     }
 
     PoseRenderTables t = build_pose_tables(
-        kps_host, num_persons, stride, src_w, src_h, W, H);
+        kps_host, num_persons, stride, src_w, src_h, W, H, marker_scale);
 
     // Pass 2: limbs.
     render_pose_dispatch(surf, W, H, t, flags, stream);

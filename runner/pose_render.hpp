@@ -60,10 +60,16 @@ struct PoseKp
 // cross-limb overlaps).
 constexpr unsigned int RENDER_FLAG_ORDERED_DRAW = (1u << 0);
 
+// `marker_scale` multiplies the base marker sizes (STICK_W/DOT_R/HAND_LINE_W/
+// HAND_DOT_R/FACE_DOT_R) so the rendered skeleton survives downstream resize
+// to a fixed SD target (default training was 4 px @ 512). 1.0 reproduces the
+// original controlnet_aux look. The TD plugin computes
+//   (Contain ? max(W,H) : min(W,H)) / target * user_scale
+// and passes the result here.
 void render_pose(
     cudaArray_t out, int W, int H,
     const PoseKp* kps_host, int num_persons, int stride,
-    int src_w, int src_h, cudaStream_t stream,
+    int src_w, int src_h, float marker_scale, cudaStream_t stream,
     unsigned int flags);
 
 } // namespace dwpose_td

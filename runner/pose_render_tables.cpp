@@ -28,6 +28,8 @@ inline int clampi(int v, int lo, int hi)
 void build_one_hand(const PoseKp* k, int hand_offset,
                     float sx, float sy, int W, int H, PoseRenderTables& t)
 {
+    const float hand_line_w_eff = static_cast<float>(HAND_LINE_W) * t.marker_scale;
+    const int   hand_dot_r_pad  = static_cast<int>(std::ceil(HAND_DOT_R * t.marker_scale)) + 1;
     const PoseKp* h = k + hand_offset;
     for(int e = 0; e < HAND_EDGE_COUNT; ++e)
     {
@@ -45,7 +47,7 @@ void build_one_hand(const PoseKp* k, int hand_offset,
         if(!(ax > 0 && ay > 0 && bx > 0 && by > 0)) continue;
         DeviceLine L;
         L.ax = ax; L.ay = ay; L.bx = bx; L.by = by; L.color_idx = e;
-        const int pad = (HAND_LINE_W + 1) / 2 + 1;
+        const int pad = static_cast<int>(std::ceil(hand_line_w_eff * 0.5f)) + 1;
         L.x0 = clampi(std::min(ax, bx) - pad, 0, W);
         L.y0 = clampi(std::min(ay, by) - pad, 0, H);
         L.x1 = clampi(std::max(ax, bx) + pad, 0, W);
@@ -69,11 +71,10 @@ void build_one_hand(const PoseKp* k, int hand_offset,
         // store the keypoint_idx here so the OrderedDraw bucketing path
         // can group dots of the same keypoint_idx into one launch.
         D.color_idx = i;
-        const int pad = HAND_DOT_R + 1;
-        D.x0 = clampi(icx - pad, 0, W);
-        D.y0 = clampi(icy - pad, 0, H);
-        D.x1 = clampi(icx + pad, 0, W);
-        D.y1 = clampi(icy + pad, 0, H);
+        D.x0 = clampi(icx - hand_dot_r_pad, 0, W);
+        D.y0 = clampi(icy - hand_dot_r_pad, 0, H);
+        D.x1 = clampi(icx + hand_dot_r_pad, 0, W);
+        D.y1 = clampi(icy + hand_dot_r_pad, 0, H);
         if(D.x1 <= D.x0 || D.y1 <= D.y0) continue;
         t.max_hand_dot_w = std::max(t.max_hand_dot_w, D.x1 - D.x0);
         t.max_hand_dot_h = std::max(t.max_hand_dot_h, D.y1 - D.y0);
@@ -85,6 +86,7 @@ void build_one_hand(const PoseKp* k, int hand_offset,
 void build_face(const PoseKp* k,
                 float sx, float sy, int W, int H, PoseRenderTables& t)
 {
+    const int face_dot_r_pad = static_cast<int>(std::ceil(FACE_DOT_R * t.marker_scale)) + 1;
     for(int i = 0; i < FACE_KP_COUNT; ++i)
     {
         const PoseKp& K = k[FACE_KP_BEGIN + i];
@@ -96,7 +98,7 @@ void build_face(const PoseKp* k,
         D.cx = static_cast<float>(icx);
         D.cy = static_cast<float>(icy);
         D.color_idx = 0; // unused (face dots are fixed-color)
-        const int pad = FACE_DOT_R + 1;
+        const int pad = face_dot_r_pad;
         D.x0 = clampi(icx - pad, 0, W);
         D.y0 = clampi(icy - pad, 0, H);
         D.x1 = clampi(icx + pad, 0, W);
@@ -112,9 +114,12 @@ void build_face(const PoseKp* k,
 
 PoseRenderTables build_pose_tables(
     const PoseKp* kps, int num_persons, int stride,
-    int src_w, int src_h, int W, int H)
+    int src_w, int src_h, int W, int H, float marker_scale)
 {
     PoseRenderTables t;
+    // Floor at a small positive value so a misconfigured 0 / negative scale
+    // doesn't degenerate every bbox into an empty rect.
+    t.marker_scale = marker_scale > 0.05f ? marker_scale : 0.05f;
     if(!kps || num_persons <= 0 || stride < 18) return t;
 
     // Coord remap matches the python pipeline:

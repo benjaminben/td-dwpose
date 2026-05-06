@@ -63,17 +63,15 @@ constexpr int HAND_R_BEGIN   = 113;
 // copy is needed.
 struct Color3 { unsigned char r, g, b; };
 
-// Body stickwidth: util.py hardcodes 4 px regardless of canvas size. The SD
-// ControlNet OpenPose checkpoints saw exactly that at training time, so we
-// follow the same convention. Same for the keypoint dot radius.
-constexpr int STICK_W = 4;
-constexpr int DOT_R = 4;
-// Hand line thickness (util.py:134 -> cv2.line(..., thickness=2)).
-constexpr int HAND_LINE_W = 2;
-// Hand keypoint dot radius (util.py:142 -> cv2.circle(..., 4, (0,0,255))).
-constexpr int HAND_DOT_R = 4;
-// Face dot radius (util.py:155 -> cv2.circle(..., 3, (255,255,255))).
-constexpr int FACE_DOT_R = 3;
+// Base marker sizes -- util.py hardcodes these at the 512-px training canvas
+// size. The renderer multiplies each by `PoseRenderTables::marker_scale` per
+// frame so HD inputs don't end up with sub-pixel markers after downstream
+// resize-to-SD-target. marker_scale = 1.0 reproduces the original constants.
+constexpr int STICK_W = 4;       // body limb minor axis
+constexpr int DOT_R = 4;         // body keypoint radius
+constexpr int HAND_LINE_W = 2;   // hand finger-line thickness (util.py:134)
+constexpr int HAND_DOT_R = 4;    // hand keypoint radius (util.py:142)
+constexpr int FACE_DOT_R = 3;    // face landmark radius (util.py:155)
 // Renderer-side draw threshold (matches dwpose_post.hpp::DRAW_CONF_THRESHOLD).
 // Duplicated here so this header has zero dependency on the worker-internal
 // dwpose_post.hpp -- the .cu file should not transitively pull TRT headers.
@@ -116,6 +114,10 @@ struct PoseRenderTables
     int max_line_w = 1, max_line_h = 1;
     int max_hand_dot_w = 1, max_hand_dot_h = 1;
     int max_face_dot_w = 1, max_face_dot_h = 1;
+    // Per-frame marker size multiplier -- applied uniformly to STICK_W,
+    // DOT_R, HAND_LINE_W, HAND_DOT_R, FACE_DOT_R. Stored here so the bbox
+    // padding (host) and the inside-test (device) read the same scalar.
+    float marker_scale = 1.0f;
 };
 
 // Walks `num_persons * stride` keypoints and emits all device-side draw tables
@@ -123,6 +125,6 @@ struct PoseRenderTables
 // CONF_GATE filter are applied per element. Pure host-side; no CUDA calls.
 PoseRenderTables build_pose_tables(
     const PoseKp* kps_host, int num_persons, int stride,
-    int src_w, int src_h, int W, int H);
+    int src_w, int src_h, int W, int H, float marker_scale);
 
 } // namespace dwpose_td

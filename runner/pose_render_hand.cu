@@ -66,7 +66,7 @@ __device__ inline float segment_dist2(
 
 __global__ void draw_hand_lines_kernel(
     cudaSurfaceObject_t surf, int W, int H,
-    const DeviceLine* lines, int n_lines)
+    const DeviceLine* lines, int n_lines, float hand_line_w_eff)
 {
     const int li = blockIdx.z;
     if(li >= n_lines) return;
@@ -76,10 +76,8 @@ __global__ void draw_hand_lines_kernel(
     if(px >= L.x1 || py >= L.y1) return;
     if(px < 0 || py < 0 || px >= W || py >= H) return;
     // cv2.line(thickness=t) on a uint8 canvas paints pixel centers within
-    // distance t/2 of the segment. Use a slightly looser threshold
-    // (HAND_LINE_W * 0.5 + 0.5) to match cv2's antialias-off coverage which
-    // includes pixels whose center is within ~0.5 of the band edge.
-    const float r = static_cast<float>(HAND_LINE_W) * 0.5f;
+    // distance t/2 of the segment. hand_line_w_eff = HAND_LINE_W * marker_scale.
+    const float r = hand_line_w_eff * 0.5f;
     const float d2 = segment_dist2(
         px + 0.5f, py + 0.5f,
         static_cast<float>(L.ax), static_cast<float>(L.ay),
@@ -93,7 +91,7 @@ __global__ void draw_hand_lines_kernel(
 
 __global__ void draw_hand_dots_kernel(
     cudaSurfaceObject_t surf, int W, int H,
-    const DeviceDot* dots, int n_dots)
+    const DeviceDot* dots, int n_dots, float hand_dot_r_eff)
 {
     const int di = blockIdx.z;
     if(di >= n_dots) return;
@@ -104,7 +102,7 @@ __global__ void draw_hand_dots_kernel(
     if(px < 0 || py < 0 || px >= W || py >= H) return;
     const float dx = (px + 0.5f) - D.cx;
     const float dy = (py + 0.5f) - D.cy;
-    const float r = static_cast<float>(HAND_DOT_R);
+    const float r = hand_dot_r_eff > 0.5f ? hand_dot_r_eff : 0.5f;
     if(dx * dx + dy * dy > r * r) return;
     // util.py:142: cv2.circle(canvas, ..., (0, 0, 255), thickness=-1).
     // controlnet_aux passes the (B,G,R)-shaped tuple to cv2 but the rest of
@@ -123,25 +121,27 @@ __global__ void draw_hand_dots_kernel(
 void launch_hand_lines(
     cudaSurfaceObject_t surf, int W, int H,
     const DeviceLine* d_lines, int n_lines,
-    int max_w, int max_h, cudaStream_t stream)
+    int max_w, int max_h, float marker_scale, cudaStream_t stream)
 {
     if(n_lines <= 0) return;
     dim3 block(16, 16);
     dim3 grid((max_w + 15) / 16, (max_h + 15) / 16,
               static_cast<unsigned>(n_lines));
-    draw_hand_lines_kernel<<<grid, block, 0, stream>>>(surf, W, H, d_lines, n_lines);
+    const float hand_line_w_eff = static_cast<float>(HAND_LINE_W) * marker_scale;
+    draw_hand_lines_kernel<<<grid, block, 0, stream>>>(surf, W, H, d_lines, n_lines, hand_line_w_eff);
 }
 
 void launch_hand_dots(
     cudaSurfaceObject_t surf, int W, int H,
     const DeviceDot* d_dots, int n_dots,
-    int max_w, int max_h, cudaStream_t stream)
+    int max_w, int max_h, float marker_scale, cudaStream_t stream)
 {
     if(n_dots <= 0) return;
     dim3 block(16, 16);
     dim3 grid((max_w + 15) / 16, (max_h + 15) / 16,
               static_cast<unsigned>(n_dots));
-    draw_hand_dots_kernel<<<grid, block, 0, stream>>>(surf, W, H, d_dots, n_dots);
+    const float hand_dot_r_eff = static_cast<float>(HAND_DOT_R) * marker_scale;
+    draw_hand_dots_kernel<<<grid, block, 0, stream>>>(surf, W, H, d_dots, n_dots, hand_dot_r_eff);
 }
 
 } // namespace dwpose_td

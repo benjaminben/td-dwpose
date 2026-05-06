@@ -71,6 +71,19 @@ DWPOSE_API void dwpose_runner_run_frame(
     dwpose_channel_order_e order,
     cudaStream_t stream);
 
+// Cap the number of bodies processed per frame. After YOLOX detection the
+// runner sorts surviving boxes by (bbox_area * detection_score) descending and
+// keeps only the top `n`. 0 (the default) disables the cap and processes every
+// detection. Live-tunable; takes effect on the next frame.
+DWPOSE_API void dwpose_runner_set_max_bodies(
+    dwpose_runner_handle h, int n);
+
+// Drop detections whose bbox shorter side is below `px`. Applied BEFORE the
+// max-bodies cap so the cap counts only viable candidates. 0 disables the
+// filter. Live-tunable; takes effect on the next frame.
+DWPOSE_API void dwpose_runner_set_min_body_px(
+    dwpose_runner_handle h, int px);
+
 // Status / progress / metrics queries.
 DWPOSE_API int   dwpose_runner_status(dwpose_runner_handle h);   // dwpose_status_e
 DWPOSE_API float dwpose_runner_progress(dwpose_runner_handle h);
@@ -111,10 +124,16 @@ DWPOSE_API int dwpose_runner_keypoints(
 // limb_idx / keypoint_idx so cross-limb overlaps are deterministic and
 // match the python reference). The flags arg is an unsigned int (not a
 // bool) so future toggles can be folded in without another ABI break.
+// `marker_scale` is a uniform multiplier on the base marker sizes (limb
+// stickwidth, body/hand/face dot radii, hand line thickness). Pass 1.0 to
+// reproduce the original 4-px-at-512 controlnet_aux look. The TD plugin
+// derives this from the canvas size + downstream SD target so an HD canvas
+// gets thicker on-canvas markers that resize down to ~4 px in the SD frame.
 DWPOSE_API void dwpose_runner_render_pose(
     dwpose_runner_handle h,
     cudaArray_t out, int W, int H,
     int src_w, int src_h,
+    float marker_scale,
     cudaStream_t stream,
     unsigned int flags);
 
